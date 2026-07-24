@@ -7,9 +7,14 @@ import { ensureServiceWorker, isIos, isStandalone } from "@/lib/pwa";
  * The home-screen nudge on the join screen.
  *
  * There is no such thing as an install link — a page can't install itself. What
- * exists is Chromium's `beforeinstallprompt`, which hands over a one-shot
- * prompt we can fire from a tap, and on iOS nothing at all but the Share menu.
- * So this is a real button on Android and honest instructions on an iPhone.
+ * exists is Chromium's `beforeinstallprompt`, which hands over a one-shot prompt
+ * we can fire from a tap. But it's unreliable: Brave often suppresses it, and
+ * Chrome only fires it after an engagement heuristic and never before mount. So
+ * a one-tap button can't be the only path, or Android users see nothing.
+ *
+ * The fallback is therefore the default on Android — written instructions for
+ * the ⋮ menu — and the button *upgrades* over it if and when the event arrives.
+ * iOS gets the Share-sheet steps; nothing programmatic exists there at all.
  *
  * It sits above the form on purpose. An iOS home-screen app gets its own cookie
  * jar, so anyone who signs in here first has to sign in again inside the app.
@@ -19,7 +24,11 @@ type InstallEvent = Event & {
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 };
 
-type Mode = "checking" | "installed" | "prompt" | "ios" | "none";
+const isAndroid = () =>
+  typeof navigator !== "undefined" && /android/i.test(navigator.userAgent);
+
+// "manual" = show the menu instructions; "prompt" = we captured the one-tap event.
+type Mode = "checking" | "installed" | "prompt" | "ios" | "manual" | "none";
 
 export function InstallApp() {
   const [mode, setMode] = useState<Mode>("checking");
@@ -35,7 +44,9 @@ export function InstallApp() {
       return;
     }
 
-    setMode(isIos() ? "ios" : "none");
+    // Android's floor is the menu instructions; if the event later fires it
+    // upgrades to the button. Other browsers (desktop) get nothing until it does.
+    setMode(isIos() ? "ios" : isAndroid() ? "manual" : "none");
 
     // Chromium fires this whenever it decides the app qualifies, which may be
     // after this component has already mounted — hence a listener, not a check.
@@ -68,15 +79,50 @@ export function InstallApp() {
       await event.prompt();
       const { outcome } = await event.userChoice;
       // The prompt is single-use whichever way they answered; Chrome will offer
-      // a fresh one later if it feels like it.
+      // a fresh one later if it feels like it. If they dismissed, drop back to
+      // the menu instructions rather than a blank space.
       deferred.current = null;
-      setMode(outcome === "accepted" ? "installed" : "none");
+      setMode(
+        outcome === "accepted" ? "installed" : isAndroid() ? "manual" : "none",
+      );
     } finally {
       setBusy(false);
     }
   }, []);
 
   if (mode === "checking" || mode === "none" || mode === "installed") return null;
+
+  if (mode === "manual") {
+    // Reached only after mount, so window is safe to read here.
+    const secure = window.isSecureContext;
+    return (
+      <Panel>
+        {secure ? (
+          <>
+            <p className="leading-relaxed">
+              <span className="font-bold text-flash">Add it to your home screen</span>{" "}
+              for alerts and a proper icon: open the{" "}
+              <span className="font-bold">⋮</span> menu, then{" "}
+              <span className="font-bold">Add to Home screen</span> on Brave, or{" "}
+              <span className="font-bold">Install app</span> on Chrome.
+            </p>
+            <p className="mt-2 leading-relaxed text-muted">
+              Brave doesn&rsquo;t always pop this up on its own — the menu is the
+              way that always works.
+            </p>
+          </>
+        ) : (
+          <p className="leading-relaxed">
+            To install this you need the{" "}
+            <span className="font-bold text-flash">https://</span> link — a local{" "}
+            <span className="font-bold">http://</span> address can&rsquo;t be added
+            as an app. Open that, then ⋮ → <span className="font-bold">Add to Home
+            screen</span>.
+          </p>
+        )}
+      </Panel>
+    );
+  }
 
   if (mode === "ios") {
     return (
