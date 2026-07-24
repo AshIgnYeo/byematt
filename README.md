@@ -184,6 +184,30 @@ exception: they need HTTPS, so test those against the deployed URL.
   Anyone with the code can sign in as anyone, including as Matt. Fine for one
   night among friends; don't reuse this for anything real.
 
+### Undoing a botched roll call
+
+Roll call goes wrong two ways, and both are fixable from `/enroll` — the screen
+you land on after signing in. **Not you? Delete this profile** removes the
+account you're currently signed in as and drops you back at the join screen.
+
+- **Someone pressed "Sign in as Matt" by mistake.** They're holding the target
+  account, so they delete it. That frees the target slot, and the next press of
+  that button creates a clean one. Worth catching before they enrol a selfie —
+  otherwise the roster has the wrong face for Matt.
+- **Matt typed his name and pressed "I'm in".** He's now a hunter, and pressing
+  the target button afterwards would make a second row called *Matt (groom)*.
+  Delete the hunter profile first, *then* press **Sign in as Matt**, and he gets
+  the target account under his own name. If both rows already exist, delete both
+  and press the button once.
+
+You can only delete the profile you're signed in as, so nobody can remove anyone
+else. An account abandoned earlier is still reachable — sign back into it (the
+button for the target, the same name for a hunter) and delete it from there.
+
+Deletion is real: it takes that player off the roster, and their photos, their
+outstanding shots and their reference selfie go with them. Bounties they'd
+claimed reopen. Fine during roll call, worth pausing over at 1am.
+
 ## Notes
 
 - Every write goes through a route handler with the service-role key; the

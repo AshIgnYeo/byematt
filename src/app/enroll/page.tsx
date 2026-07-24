@@ -1,4 +1,6 @@
 import { redirect } from "next/navigation";
+import { DeleteProfile } from "@/components/DeleteProfile";
+import { targetName } from "@/lib/config";
 import { adminDb } from "@/lib/db";
 import { currentPlayer } from "@/lib/session";
 import { EnrollForm } from "./enroll-form";
@@ -8,10 +10,16 @@ export default async function EnrollPage() {
   const player = await currentPlayer();
   if (!player) redirect("/");
 
-  const { data: roster } = await adminDb()
-    .from("players")
-    .select("id, name, emoji, is_target, reference_path")
-    .order("name");
+  const db = adminDb();
+
+  const [{ data: roster }, { count: photoCount }] = await Promise.all([
+    db.from("players").select("id, name, emoji, is_target, reference_path").order("name"),
+    // Only for the delete warning — how much of the game goes with this profile.
+    db
+      .from("photos")
+      .select("id", { count: "exact", head: true })
+      .eq("photographer_id", player.id),
+  ]);
 
   const waiting = (roster ?? []).filter((p) => !p.reference_path);
 
@@ -53,6 +61,13 @@ export default async function EnrollPage() {
           ))}
         </ul>
       </section>
+
+      <DeleteProfile
+        name={player.name}
+        isTarget={player.is_target}
+        photoCount={photoCount ?? 0}
+        targetName={targetName()}
+      />
     </main>
   );
 }
