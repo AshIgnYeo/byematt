@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { InstallApp } from "@/components/InstallApp";
 import { targetName } from "@/lib/config";
 import { currentPlayer } from "@/lib/session";
 import { JoinForm } from "./join-form";
@@ -22,6 +23,10 @@ export default async function JoinPage() {
           Catch him off guard. The funnier the photo, the faster he drinks.
         </p>
       </header>
+
+      {/* Above the form: on iOS the installed app has its own sign-in, so
+          joining here first means doing it twice. */}
+      <InstallApp />
 
       <JoinForm targetName={targetName()} />
     </main>

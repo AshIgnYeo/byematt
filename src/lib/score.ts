@@ -61,6 +61,46 @@ The caption is read aloud to the whole party. Make it sharp and funny, aimed at
 the situation in the photo. Keep it affectionate — this is a friend's send-off,
 not an insult. Never comment on unchangeable physical characteristics.`;
 
+export type Assignment = {
+  subjectName: string;
+  action: string;
+  title?: string | null;
+};
+
+/**
+ * The rig brief, appended after the cache breakpoint.
+ *
+ * Rigs fail in the opposite direction to everything else here: they're posed,
+ * the subject is looking at the lens, and every instinct in the system prompt
+ * reads that as a low-effort photo. So the brief suspends that judgement, then
+ * demands every clause of the configuration literally — the strictness moves
+ * from "is this candid" to "are there really four fingers".
+ */
+function brief(assignment: Assignment | null | undefined): string {
+  if (!assignment) {
+    return (
+      `Identify who from the roster is in this capture, then rate it. ` +
+      `No rig was attempted: set bounty_met false and leave bounty_note empty.`
+    );
+  }
+
+  const { subjectName, action, title } = assignment;
+
+  return (
+    `Identify who from the roster is in this capture, then rate it.\n\n` +
+    `RIGGED JOB the photographer is attempting${title ? ` — "${title}"` : ""}: ` +
+    `${subjectName} ${action}.\n` +
+    `This one was deliberately engineered by the group, so posing, mugging and ` +
+    `eye contact are expected and must NOT count against bounty_met — judge only ` +
+    `whether the described configuration is actually there.\n` +
+    `Read the description as a checklist and set bounty_met true only if ` +
+    `${subjectName} is genuinely in the photo AND every clause of it is visibly ` +
+    `true. Count fingers, hands, arms, people and objects literally. If a clause ` +
+    `is ambiguous, or you find yourself giving benefit of the doubt, it is false.\n` +
+    `In bounty_note, name the clause that failed, or confirm the one that made it.`
+  );
+}
+
 function imageBlock(img: ImageInput): Anthropic.ImageBlockParam {
   return {
     type: "image",
@@ -86,7 +126,7 @@ function imageBlock(img: ImageInput): Anthropic.ImageBlockParam {
 export async function scorePhoto(opts: {
   capture: ImageInput;
   roster: RosterEntry[];
-  assignment?: { subjectName: string; action: string } | null;
+  assignment?: Assignment | null;
 }): Promise<Verdict> {
   const content: Anthropic.ContentBlockParam[] = [
     {
@@ -106,15 +146,7 @@ export async function scorePhoto(opts: {
 
   content.push({ type: "text", text: "CAPTURE to judge:" }, imageBlock(opts.capture));
 
-  content.push({
-    type: "text",
-    text: opts.assignment
-      ? `Identify who from the roster is in this capture, then rate it.\n\n` +
-        `ASSIGNMENT the photographer is attempting: capture ${opts.assignment.subjectName} ${opts.assignment.action}.\n` +
-        `Set bounty_met true only if ${opts.assignment.subjectName} is genuinely in the photo AND the described situation is genuinely happening. Be strict — a near miss is a miss.`
-      : `Identify who from the roster is in this capture, then rate it. ` +
-        `No assignment was attempted: set bounty_met false and leave bounty_note empty.`,
-  });
+  content.push({ type: "text", text: brief(opts.assignment) });
 
   const response = await anthropic.messages.parse({
     model: "claude-opus-4-8",

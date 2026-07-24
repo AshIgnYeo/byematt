@@ -34,8 +34,8 @@ create unique index if not exists players_one_target
   on players ((is_target)) where is_target;
 
 -- --------------------------------------------------------------- bounties --
--- An assignment the app hands out: "capture <subject> <action>". Hunters get
--- ones aimed at Matt; Matt gets ones aimed at everybody else.
+-- An assignment the app hands out: "capture <subject> <action>". The rows
+-- themselves are seeded in the next migration; this is just the shape.
 create table if not exists bounties (
   id         uuid primary key default gen_random_uuid(),
   action     text not null,                    -- "mid-bite", "dancing badly"
@@ -196,23 +196,5 @@ grant select on photos, bounties, game, shot_log, public_players
 -- ------------------------------------------------------------------- seed --
 -- No players are seeded — everyone registers themselves on the join screen.
 -- Whoever signs in under TARGET_NAME (see .env) becomes the target.
-
--- Hunter bounties: subject_id NULL means "the target", i.e. Matt.
-insert into bounties (action, points, for_role, subject_id)
-select v.action, v.points, 'hunter', null
-from (values
-  ('mid-bite, mouth full',            30),
-  ('dancing, badly',                  40),
-  ('deep in conversation with a stranger', 35),
-  ('asleep, or losing that battle',   50),
-  ('visibly losing an argument',      30),
-  ('holding two drinks at once',      25),
-  ('sneaking a look at his phone',    20),
-  ('the only one blinking in a group photo', 45),
-  ('being handed something he did not ask for', 35),
-  ('mid-laugh, eyes shut',            30)
-) as v(action, points)
-where not exists (select 1 from bounties where for_role = 'hunter');
-
--- Matt's counter-bounties get seeded per player by /api/bounties/deal, so they
--- always name real people from the roster rather than hard-coded names.
+--
+-- No bounties either: the rigged jobs are seeded in the next migration.

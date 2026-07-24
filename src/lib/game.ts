@@ -136,6 +136,33 @@ export async function applyToMeter(opts: {
   return result;
 }
 
+/**
+ * A rig landing puts shots on the target directly, without going through the
+ * meter — no threshold ratchet, no waiting for the bar to fill. Pulling off a
+ * setup the whole group worked on should pay out the moment it's judged.
+ */
+export async function oweShots(opts: {
+  count: number;
+  playerId: string;
+  photoId: string;
+  reason: string;
+}): Promise<number> {
+  const db = adminDb();
+
+  const { data, error } = await db.rpc("owe_shots", { p_count: opts.count });
+  if (error) throw new Error(`owe_shots failed: ${error.message}`);
+
+  await db.from("shot_log").insert(
+    Array.from({ length: opts.count }, () => ({
+      player_id: opts.playerId,
+      photo_id: opts.photoId,
+      reason: opts.reason,
+    })),
+  );
+
+  return typeof data === "number" ? data : 0;
+}
+
 /** Matt's revenge: whoever he catches owes one immediately. */
 export async function chargeSubject(opts: {
   playerId: string;
@@ -153,18 +180,27 @@ export async function chargeSubject(opts: {
 
 export type Bounty = {
   id: string;
+  /** Caper name — "The Touchdown". */
+  title: string | null;
+  /** The configuration the photo has to show, graded clause by clause. */
   action: string;
   points: number;
+  /** Shots straight onto the target's tab when this is claimed. 0 = points only. */
+  shots: number;
   subject_id: string | null;
   for_role: "hunter" | "target";
   claimed_by: string | null;
 };
 
-/** Open assignments for this player's side of the game. */
+/**
+ * Open rigs for this player's side of the game. Every seeded rig is aimed at
+ * Matt, so the target's side comes back empty — which is exactly right: he
+ * should never see the list of things he's about to be tricked into doing.
+ */
 export async function openBounties(player: Player): Promise<Bounty[]> {
   const { data } = await adminDb()
     .from("bounties")
-    .select("id, action, points, subject_id, for_role, claimed_by")
+    .select("id, title, action, points, shots, subject_id, for_role, claimed_by")
     .eq("for_role", player.is_target ? "target" : "hunter")
     .is("claimed_by", null)
     .order("points", { ascending: false });
@@ -189,51 +225,4 @@ export async function claimBounty(opts: {
 
   if (error) return false;
   return data === true;
-}
-
-/**
- * Tops up Matt's counter-bounty deck so he always has open assignments naming
- * real people from the roster. Hunter bounties are seeded in schema.sql; his
- * are generated here because they need player ids.
- */
-const COUNTER_ACTIONS = [
-  "mid-sentence, gesturing wildly",
-  "queuing at the bar",
-  "looking at their phone instead of the room",
-  "laughing at something that wasn't that funny",
-  "trying to take a photo of me",
-  "eating something with both hands",
-  "mid-yawn",
-  "attempting to dance",
-];
-
-export async function dealCounterBounties(minimum = 4): Promise<number> {
-  const db = adminDb();
-
-  const { data: open } = await db
-    .from("bounties")
-    .select("id")
-    .eq("for_role", "target")
-    .is("claimed_by", null);
-
-  const missing = minimum - (open?.length ?? 0);
-  if (missing <= 0) return 0;
-
-  const { data: hunters } = await db
-    .from("players")
-    .select("id")
-    .eq("is_target", false)
-    .not("reference_path", "is", null);
-
-  if (!hunters?.length) return 0;
-
-  const rows = Array.from({ length: missing }, (_, i) => ({
-    action: COUNTER_ACTIONS[(i + Date.now()) % COUNTER_ACTIONS.length],
-    points: 30,
-    subject_id: hunters[Math.floor(Math.random() * hunters.length)].id,
-    for_role: "target" as const,
-  }));
-
-  await db.from("bounties").insert(rows);
-  return rows.length;
 }

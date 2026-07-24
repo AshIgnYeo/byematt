@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { RULES, STORAGE_BUCKET } from "@/lib/config";
 import { adminDb, publicUrl } from "@/lib/db";
 import {
@@ -8,10 +8,12 @@ import {
   claimBounty,
   loadEnrolled,
   matchNames,
+  oweShots,
   pointsFor,
   stealthMultiplier,
 } from "@/lib/game";
-import { scorePhoto } from "@/lib/score";
+import { broadcast } from "@/lib/push";
+import { scorePhoto, type Assignment } from "@/lib/score";
 import { currentPlayer } from "@/lib/session";
 
 export const maxDuration = 60;
@@ -68,22 +70,38 @@ export async function POST(request: Request) {
   const storagePath = `${STORAGE_BUCKET}/${path}`;
 
   // ----------------------------------------------------------- the verdict --
-  let assignment: { subjectName: string; action: string } | null = null;
-  let bounty: { id: string; points: number; subject_id: string | null } | null = null;
+  let assignment: Assignment | null = null;
+  let bounty: {
+    id: string;
+    title: string | null;
+    points: number;
+    shots: number;
+    subject_id: string | null;
+  } | null = null;
 
   if (typeof bountyId === "string" && bountyId) {
     const { data } = await db
       .from("bounties")
-      .select("id, action, points, subject_id, claimed_by")
+      .select("id, title, action, points, shots, subject_id, claimed_by")
       .eq("id", bountyId)
       .single();
 
     if (data && !data.claimed_by) {
-      bounty = { id: data.id, points: data.points, subject_id: data.subject_id };
+      bounty = {
+        id: data.id,
+        title: data.title,
+        points: data.points,
+        shots: data.shots,
+        subject_id: data.subject_id,
+      };
       const subjectId = data.subject_id ?? target.id;
       const subject = enrolled.find((p) => p.id === subjectId);
       if (subject) {
-        assignment = { subjectName: subject.name, action: data.action };
+        assignment = {
+          subjectName: subject.name,
+          action: data.action,
+          title: data.title,
+        };
       }
     }
   }
@@ -199,6 +217,19 @@ export async function POST(request: Request) {
     reason: verdict.caption,
   });
 
+  // A rig that lands pays out immediately, on top of whatever the meter did.
+  // Straight onto the tab: no threshold to cross, no ratchet afterwards.
+  let rigShots = 0;
+  if (bountyClaimed && bounty && bounty.shots > 0) {
+    rigShots = bounty.shots;
+    meter.shots_owed = await oweShots({
+      count: rigShots,
+      playerId: target.id,
+      photoId: photo.id,
+      reason: bounty.title ? `Rigged — ${bounty.title}` : verdict.caption,
+    });
+  }
+
   // Matt's revenge: whoever he catches drinks too.
   let subjectDrinks = false;
   if (photographer.is_target && RULES.MATT_REVENGE_DRINKS) {
@@ -209,6 +240,52 @@ export async function POST(request: Request) {
     });
     subjectDrinks = true;
   }
+
+  // ---------------------------------------------------------- the broadcast --
+  // The point of the notifications is that the room looks up at the same
+  // moment: once when a capture lands, again when Matt goes on the hook for
+  // another drink. `after` runs them once the response is already on its way,
+  // so the photographer never waits on a fan-out of push deliveries.
+  const shotsAdded = meter.shots_added + rigShots;
+
+  after(async () => {
+    await broadcast(
+      photographer.is_target
+        ? {
+            title: `🎯 ${photographer.name} caught ${subject.name} out`,
+            body: subjectDrinks
+              ? `${verdict.caption} — ${subject.name} drinks.`
+              : verdict.caption,
+            image: publicUrl(storagePath),
+            tag: `photo-${photo.id}`,
+            url: "/feed",
+          }
+        : {
+            title: `📸 ${photographer.name} caught ${subject.name} · +${totalPoints}`,
+            body: verdict.caption,
+            image: publicUrl(storagePath),
+            tag: `photo-${photo.id}`,
+            url: "/feed",
+          },
+      // The photographer is already staring at this verdict on their own screen.
+      { except: [photographer.id] },
+    );
+
+    if (shotsAdded > 0) {
+      // Everyone, photographer included — this is the gather-round moment.
+      await broadcast({
+        title: rigShots
+          ? `🥃 Rig landed — ${target.name} drinks`
+          : `🥃 ${target.name} owes a shot`,
+        body:
+          meter.shots_owed === 1
+            ? "One outstanding. Somebody pour it."
+            : `${meter.shots_owed} outstanding. Somebody pour them.`,
+        tag: "shots",
+        url: "/reckoning",
+      });
+    }
+  });
 
   return NextResponse.json({
     ok: true,
@@ -221,6 +298,8 @@ export async function POST(request: Request) {
     multiplier,
     points: totalPoints,
     bountyPoints,
+    bountyTitle: bountyClaimed ? bounty?.title ?? null : null,
+    rigShots,
     bountyNote: bounty ? verdict.bounty_note : "",
     tags: verdict.tags,
     meter,

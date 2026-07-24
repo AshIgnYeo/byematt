@@ -5,8 +5,10 @@ import { shrink } from "@/lib/resize";
 
 type Bounty = {
   id: string;
+  title: string | null;
   action: string;
   points: number;
+  shots: number;
   subjectName: string;
   subjectEmoji: string;
 };
@@ -19,6 +21,8 @@ type Result = {
   subject?: { name: string; emoji: string };
   points?: number;
   bountyPoints?: number;
+  bountyTitle?: string | null;
+  rigShots?: number;
   bountyNote?: string;
   funniness?: number;
   candidness?: number;
@@ -37,12 +41,14 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
 
+  // Matt has no rigs of his own — the list exists to be kept away from him.
   useEffect(() => {
+    if (isTarget) return;
     fetch("/api/bounties")
       .then((r) => r.json())
       .then((d) => setBounties(d.bounties ?? []))
       .catch(() => {});
-  }, [result]);
+  }, [isTarget, result]);
 
   async function onPick(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -105,13 +111,15 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
         disabled={busy}
         className="mt-6 aspect-square w-full rounded-3xl border-4 border-flash bg-flash/5 text-2xl font-black uppercase tracking-wide text-flash disabled:opacity-50"
       >
-        {busy ? "Judging…" : chosen ? "Shoot the assignment" : "Take the shot"}
+        {busy ? "Judging…" : chosen ? "Shoot the rig" : "Take the shot"}
       </button>
 
       {chosen && (
         <p className="mt-3 rounded-xl border border-flash/40 bg-flash/10 px-4 py-3 text-sm">
-          <span className="font-bold text-flash">Assignment armed:</span>{" "}
+          <span className="font-bold text-flash">Rig armed:</span>{" "}
+          {chosen.title && <span className="font-bold">{chosen.title} — </span>}
           {chosen.subjectEmoji} {chosen.subjectName} {chosen.action} · +{chosen.points}
+          {chosen.shots > 0 && ` · 🥃×${chosen.shots}`}
         </p>
       )}
 
@@ -123,47 +131,83 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
 
       {result && <Verdict result={result} />}
 
-      <section className="mt-10">
-        <h2 className="text-xs font-bold uppercase tracking-widest text-muted">
-          Open assignments
-        </h2>
-        <p className="mt-1 text-xs text-muted">
-          Arm one before you shoot. Bonus points only if the judge agrees you nailed it.
-        </p>
+      {!isTarget && (
+        <section className="mt-10">
+          <h2 className="text-xs font-bold uppercase tracking-widest text-danger">
+            Rigged jobs
+          </h2>
+          <p className="mt-1 text-xs text-muted">
+            None of these happen on their own. How you get him there is up to
+            you — land it and Matt drinks on the spot.
+          </p>
 
-        <ul className="mt-3 flex flex-col gap-2">
-          {bounties.map((bounty) => {
-            const active = bounty.id === picked;
-            return (
+          <ul className="mt-3 flex flex-col gap-2">
+            {bounties.map((bounty) => (
               <li key={bounty.id}>
-                <button
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setPicked(active ? null : bounty.id)}
-                  className={`flex w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors ${
-                    active ? "border-flash bg-flash/10" : "border-edge bg-panel"
-                  }`}
-                >
-                  <span className="text-sm">
-                    <span aria-hidden>{bounty.subjectEmoji}</span>{" "}
-                    <span className="font-bold">{bounty.subjectName}</span>{" "}
-                    <span className="text-muted">{bounty.action}</span>
-                  </span>
-                  <span className="shrink-0 text-sm font-black text-flash">
-                    +{bounty.points}
-                  </span>
-                </button>
+                <RigCard
+                  bounty={bounty}
+                  active={bounty.id === picked}
+                  onToggle={() =>
+                    setPicked(bounty.id === picked ? null : bounty.id)
+                  }
+                />
               </li>
-            );
-          })}
-          {bounties.length === 0 && (
-            <li className="rounded-xl border border-edge px-4 py-6 text-center text-sm text-muted">
-              All assignments claimed. Freestyle.
-            </li>
-          )}
-        </ul>
-      </section>
+            ))}
+            {bounties.length === 0 && (
+              <li className="rounded-xl border border-edge px-4 py-6 text-center text-sm text-muted">
+                Every job pulled off. Freestyle.
+              </li>
+            )}
+          </ul>
+        </section>
+      )}
     </main>
+  );
+}
+
+/**
+ * The card says what the photo has to show and nothing about how to get it.
+ * That half is the actual game, and a table of six people will always come up
+ * with something better than a line of seed data. Tapping it arms the shot.
+ */
+function RigCard({
+  bounty,
+  active,
+  onToggle,
+}: {
+  bounty: Bounty;
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onToggle}
+      className={`w-full rounded-xl border px-4 py-3 text-left transition-colors ${
+        active ? "border-flash bg-flash/10" : "border-danger/40 bg-panel"
+      }`}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-sm font-black uppercase tracking-wide">
+          {bounty.title ?? "Rigged job"}
+        </span>
+        <span className="shrink-0 text-sm font-black text-flash">
+          {bounty.shots > 0 && (
+            <span className="mr-2 text-danger">
+              🥃{bounty.shots > 1 ? `×${bounty.shots}` : ""}
+            </span>
+          )}
+          +{bounty.points}
+        </span>
+      </div>
+
+      <p className="mt-1 text-sm leading-relaxed">
+        <span aria-hidden>{bounty.subjectEmoji}</span>{" "}
+        <span className="font-bold">{bounty.subjectName}</span>{" "}
+        <span className="text-muted">{bounty.action}</span>
+      </p>
+    </button>
   );
 }
 
@@ -191,17 +235,24 @@ function Verdict({ result }: { result: Result }) {
 
             {result.bountyPoints ? (
               <p className="mt-2 text-sm font-bold text-flash">
-                Assignment nailed · +{result.bountyPoints} bonus
+                {result.bountyTitle
+                  ? `${result.bountyTitle} — pulled off`
+                  : "Rig pulled off"}{" "}
+                · +{result.bountyPoints} bonus
               </p>
             ) : result.bountyNote ? (
               <p className="mt-2 text-sm text-muted">
-                Assignment missed — {result.bountyNote}
+                Rig missed — {result.bountyNote}
               </p>
             ) : null}
 
-            {result.meter?.shots_added ? (
+            {(result.meter?.shots_added || result.rigShots) ? (
               <p className="mt-3 rounded-lg bg-danger/15 px-3 py-2 text-sm font-black uppercase tracking-wide text-danger">
-                🥃 That&rsquo;s a shot. Matt owes {result.meter.shots_owed}.
+                🥃{" "}
+                {result.rigShots
+                  ? `The rig landed. ${result.rigShots > 1 ? `${result.rigShots} shots` : "That's a shot"}, straight away.`
+                  : "That's a shot."}{" "}
+                Matt owes {result.meter?.shots_owed}.
               </p>
             ) : null}
 
