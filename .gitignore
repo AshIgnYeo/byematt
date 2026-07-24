@@ -1,0 +1,15 @@
+node_modules
+.next
+
+# Secrets: Anthropic key, Supabase service-role key, session secret.
+.env.local
+.env
+.env*.local
+
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+
+# Supabase CLI scratch (linked project ref, schema diffs, container state).
+supabase/.temp
+supabase/.branches
