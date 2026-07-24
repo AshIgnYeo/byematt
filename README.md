@@ -27,7 +27,7 @@ pulls his meter down, and that person drinks for getting caught.
    resets, and the threshold ratchets up so the night doesn't run away.
 4. **Rigged jobs.** Six standing assignments, and the reason to talk to each
    other. Each one names an exact configuration — *both arms above his head and
-   his mouth open*, *three fingers on one hand and four on the other* — and says
+   his mouth open*, *four people all looking down at their own phones* — and says
    nothing whatsoever about how to get him there. That half is the game. Arm one
    before you shoot; land it and Matt drinks immediately, no meter involved.
    Each job pays out once, to whoever banks it first.
@@ -48,10 +48,35 @@ Rigs score badly on candidness by definition — he's posing, that was the plan 
 so their base points are small and the bounty bonus plus the instant shot is the
 whole payoff. The judge is told not to hold the posing against a rig, and to
 grade the description as a checklist where every clause has to be visibly true,
-counting fingers and hands and people literally. That strictness is what stops
+counting people and hands and phones literally. That strictness is what stops
 an argument at 1am, so keep new jobs countable from a single frame. The seeds
 live in `supabase/migrations/20260724010000_rigs.sql`; `shots` is how many land
 the moment it's claimed, `0` for points only.
+
+### Why a rig is judged three times
+
+Counting is harder for a vision model than it looks, and it fails confidently
+rather than hesitantly. This slot used to hold a *three fingers on one hand,
+four on the other* rig; on a correctly-held pose the judge — one look,
+`effort: "low"`, no thinking — reported **eight**, twice, without blinking. That
+rig is now The Group Chat, because people and phones stay countable in a dark
+bar and fingers don't.
+
+The judging change stayed, because every rig turns on a count of something. A
+rig gets thinking on, `RIG_JUDGE_EFFORT` effort, and `RIG_VOTES` independent
+passes whose majority decides; a freestyle capture still gets one fast pass at
+`low` with thinking off. The passes run concurrently, so the wait is one call
+rather than three.
+
+Measured, on the finger photos that started this: one careful pass fixed the
+clean pose (3 trials of 3) but not a sloppy one, and the vote is what makes that
+*stable* — a crisp configuration passes every time and a mushy one fails every
+time, which is a rule you can enforce at 1am rather than a coin flip.
+
+**Cost, measured on a two-person roster:** a freestyle capture is **1.4¢**; a rig
+is **7.6¢**, because it is three calls and none of them can read a cache the
+others haven't finished writing yet. Only armed rigs pay it, at most six times a
+night. Dial `RIG_VOTES` to `1` to turn voting off entirely.
 
 ## Alerts
 
@@ -179,6 +204,9 @@ exception: they need HTTPS, so test those against the deployed URL.
   **Alerts on** on the feed. On iPhone it has to be the home-screen copy, and
   nobody will do it later.
 - Read the captions out loud. That's most of the fun.
+- On a counting rig, make the count unmistakable — everyone the job names fully
+  in frame and doing the thing plainly. Anything the judge has to squint at is
+  scored as a miss on purpose.
 - `/reckoning` is the screen to have open when you're calling shots.
 - Signing in is the shared party code plus your name — no per-player secret.
   Anyone with the code can sign in as anyone, including as Matt. Fine for one

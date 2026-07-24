@@ -1,43 +1,17 @@
 import { NextResponse } from "next/server";
-import { adminDb, publicUrl } from "@/lib/db";
+import { adminDb } from "@/lib/db";
+import { loadShots } from "@/lib/feed";
 import { currentPlayer } from "@/lib/session";
 
-/** Outstanding shots, newest first, with the photo that caused each one. */
+/**
+ * The reckoning's polling endpoint. The first paint comes from the server
+ * render; this only keeps it moving.
+ */
 export async function GET() {
   const viewer = await currentPlayer();
   if (!viewer) return NextResponse.json({ error: "Not signed in." }, { status: 401 });
 
-  const db = adminDb();
-
-  const [shotsRes, playersRes, photosRes] = await Promise.all([
-    db.from("shot_log").select("*").order("created_at", { ascending: false }),
-    db.from("players").select("id, name, emoji"),
-    db
-      .from("photos")
-      .select("id, storage_path, caption, score, bounty_points, funniness")
-      .not("subject_id", "is", null)
-      .order("score", { ascending: false })
-      .limit(5),
-  ]);
-
-  const byId = new Map((playersRes.data ?? []).map((p) => [p.id, p]));
-
-  return NextResponse.json({
-    shots: (shotsRes.data ?? []).map((shot) => ({
-      id: shot.id,
-      settled: shot.settled,
-      reason: shot.reason,
-      createdAt: shot.created_at,
-      player: byId.get(shot.player_id)?.name ?? "?",
-      emoji: byId.get(shot.player_id)?.emoji ?? "🥃",
-    })),
-    hallOfFame: (photosRes.data ?? []).map((photo) => ({
-      id: photo.id,
-      url: publicUrl(photo.storage_path),
-      caption: photo.caption,
-      score: photo.score + photo.bounty_points,
-    })),
-  });
+  return NextResponse.json(await loadShots());
 }
 
 /** Mark a shot as actually taken. */

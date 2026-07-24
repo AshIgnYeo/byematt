@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { shrink } from "@/lib/resize";
+import { prepareCapture } from "@/lib/resize";
 
 type Bounty = {
   id: string;
@@ -68,8 +68,16 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
     setPreview(URL.createObjectURL(file));
 
     try {
+      // The feed-sized copy is made here rather than on the server: the pixels
+      // are already decoded on this phone, and it saves everyone else pulling
+      // the full-size shot down to look at a thumbnail.
+      const capture = await prepareCapture(file);
+
       const body = new FormData();
-      body.append("photo", await shrink(file));
+      body.append("photo", capture.full);
+      if (capture.thumb) body.append("thumb", capture.thumb);
+      body.append("width", String(capture.width));
+      body.append("height", String(capture.height));
       if (picked) body.append("bountyId", picked);
 
       const response = await fetch("/api/capture", { method: "POST", body });

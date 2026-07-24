@@ -14,6 +14,19 @@ export const RULES = {
   MATT_REVENGE_DRINKS: true,
   /** Matt's own photos claw back this fraction of their value. */
   COUNTER_ATTACK_RATE: 1.0,
+  /**
+   * How hard the judge thinks about a rig. Rigs turn on counting people, arms
+   * and phones, which a glance gets wrong — at "low" the judge read a held-up
+   * three-and-four as eight. Drop to "medium" if the wait at the bar is worse
+   * than the odd miscount.
+   */
+  RIG_JUDGE_EFFORT: "high",
+  /**
+   * How many times a rig is judged before the majority decides. Odd numbers
+   * only, or there's no majority. 1 disables voting; 5 buys a little more
+   * certainty for another ~1.5¢ on the handful of rigs in a night.
+   */
+  RIG_VOTES: 3,
 } as const;
 
 export const SESSION_COOKIE = "byematt_session";

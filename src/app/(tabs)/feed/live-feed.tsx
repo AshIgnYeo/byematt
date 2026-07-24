@@ -2,41 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Meter } from "@/components/Meter";
+import type { FeedState } from "@/lib/feed";
 
-type State = {
-  game: { meter: number; threshold: number; shots_owed: number; round: number };
-  leaderboard: {
-    id: string;
-    name: string;
-    emoji: string;
-    points: number;
-    captures: number;
-    bounties: number;
-    owes: number;
-    enrolled: boolean;
-  }[];
-  feed: {
-    id: string;
-    url: string;
-    caption: string;
-    counted: boolean;
-    reason: string | null;
-    score: number;
-    bountyPoints: number;
-    funniness: number;
-    candidness: number;
-    multiplier: number;
-    tags: string[];
-    createdAt: string;
-    photographer: string;
-    photographerEmoji: string;
-    subject: string | null;
-    counterAttack: boolean;
-  }[];
-};
-
-export function LiveFeed() {
-  const [state, setState] = useState<State | null>(null);
+export function LiveFeed({ initial }: { initial: FeedState }) {
+  // Seeded by the server render, so the feed paints with the night already in
+  // it. The poll below only has to keep it moving.
+  const [state, setState] = useState(initial);
   const [tab, setTab] = useState<"feed" | "board">("feed");
 
   useEffect(() => {
@@ -53,7 +24,6 @@ export function LiveFeed() {
       }
     }
 
-    load();
     const timer = setInterval(load, 5000);
     return () => {
       alive = false;
@@ -61,22 +31,16 @@ export function LiveFeed() {
     };
   }, []);
 
-  if (!state) {
-    return (
-      <main className="flex flex-1 items-center justify-center text-sm text-muted">
-        Tuning in…
-      </main>
-    );
-  }
-
   return (
     <main className="flex-1">
-      <Meter
-        meter={state.game.meter}
-        threshold={state.game.threshold}
-        shotsOwed={state.game.shots_owed}
-        round={state.game.round}
-      />
+      {state.game && (
+        <Meter
+          meter={state.game.meter}
+          threshold={state.game.threshold}
+          shotsOwed={state.game.shots_owed}
+          round={state.game.round}
+        />
+      )}
 
       <div className="sticky top-0 z-30 grid grid-cols-2 border-b border-edge bg-ink/95 backdrop-blur">
         {(["feed", "board"] as const).map((key) => (
@@ -105,12 +69,18 @@ export function LiveFeed() {
                 photo.counted ? "border-edge" : "border-edge/50"
               }`}
             >
+              {/* Feed-sized copy, and its real dimensions so the row holds its
+                  height before the bytes land — otherwise the whole list jumps
+                  around as photos fill in. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={photo.url}
                 alt={photo.caption}
+                width={photo.width ?? undefined}
+                height={photo.height ?? undefined}
                 loading="lazy"
-                className={`w-full ${photo.counted ? "" : "opacity-80"}`}
+                decoding="async"
+                className={`h-auto w-full ${photo.counted ? "" : "opacity-80"}`}
               />
 
               <div className="p-4">
@@ -175,7 +145,7 @@ export function LiveFeed() {
   );
 }
 
-function Standings({ rows }: { rows: State["leaderboard"] }) {
+function Standings({ rows }: { rows: FeedState["leaderboard"] }) {
   return (
     <ol className="flex flex-col gap-2 p-4">
       {rows.map((row, index) => (
