@@ -38,6 +38,7 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [picked, setPicked] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
 
@@ -50,6 +51,12 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
       .catch(() => {});
   }, [isTarget, result]);
 
+  // Frees the previous shot's blob URL as soon as it leaves the screen.
+  useEffect(() => {
+    if (!preview) return;
+    return () => URL.revokeObjectURL(preview);
+  }, [preview]);
+
   async function onPick(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -58,6 +65,7 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
     setBusy(true);
     setError("");
     setResult(null);
+    setPreview(URL.createObjectURL(file));
 
     try {
       const body = new FormData();
@@ -79,6 +87,10 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
   }
 
   const chosen = bounties.find((b) => b.id === picked);
+
+  // The shot sits under the shutter while the judge reads it, then hands off to
+  // the verdict card — one photo on screen at a time, never a black hole.
+  const holding = preview && !result;
 
   return (
     <main className="flex flex-1 flex-col px-5 py-8">
@@ -109,9 +121,26 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
         type="button"
         onClick={() => input.current?.click()}
         disabled={busy}
-        className="mt-6 aspect-square w-full rounded-3xl border-4 border-flash bg-flash/5 text-2xl font-black uppercase tracking-wide text-flash disabled:opacity-50"
+        className={`relative mt-6 aspect-square w-full overflow-hidden rounded-3xl border-4 border-flash bg-flash/5 text-2xl font-black uppercase tracking-wide text-flash ${
+          holding ? "" : "disabled:opacity-50"
+        }`}
       >
-        {busy ? "Judging…" : chosen ? "Shoot the rig" : "Take the shot"}
+        {holding && (
+          <>
+            {/* Local blob, not the uploaded copy — it paints instantly. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={preview}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+            <span className="absolute inset-0 bg-ink/60" />
+          </>
+        )}
+
+        <span className={`relative ${busy ? "animate-pulse" : ""}`}>
+          {busy ? "Judging…" : chosen ? "Shoot the rig" : "Take the shot"}
+        </span>
       </button>
 
       {chosen && (
@@ -129,7 +158,7 @@ export function HuntScreen({ isTarget, name }: { isTarget: boolean; name: string
         </p>
       )}
 
-      {result && <Verdict result={result} />}
+      {result && <Verdict result={result} preview={preview} />}
 
       {!isTarget && (
         <section className="mt-10">
@@ -211,12 +240,17 @@ function RigCard({
   );
 }
 
-function Verdict({ result }: { result: Result }) {
+function Verdict({ result, preview }: { result: Result; preview: string | null }) {
   return (
     <article className="flash-in mt-5 overflow-hidden rounded-2xl border border-edge bg-panel">
-      {/* Storage URL, no next/image loader needed for a party album. */}
+      {/* The blob we already have beats a round trip to storage for the same
+          pixels; the feed serves result.url to everyone else. */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={result.url} alt={result.caption} className="w-full object-cover" />
+      <img
+        src={preview ?? result.url}
+        alt={result.caption}
+        className="w-full object-cover"
+      />
 
       <div className="p-4">
         {result.counted ? (
