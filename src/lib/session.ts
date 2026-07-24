@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { cache } from "react";
 import { SESSION_COOKIE } from "./config";
 import { adminDb, type Player } from "./db";
 
@@ -29,8 +31,13 @@ function verifyToken(token: string): string | null {
   return timingSafeEqual(provided, expected) ? playerId : null;
 }
 
-/** The signed-in player, or null. Safe to call from any server component. */
-export async function currentPlayer(): Promise<Player | null> {
+/**
+ * The signed-in player, or null. Safe to call from any server component.
+ *
+ * Wrapped in `cache` so a request that needs the player in the layout, in the
+ * page and again while building its payload pays for one lookup, not three.
+ */
+export const currentPlayer = cache(async (): Promise<Player | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
 
@@ -44,4 +51,15 @@ export async function currentPlayer(): Promise<Player | null> {
     .single();
 
   return (data as Player) ?? null;
+});
+
+/**
+ * The guard every screen behind the sign-in shares: signed in, and enrolled —
+ * you can't hunt or be hunted until the judge has a face to match you against.
+ */
+export async function requirePlayer(): Promise<Player> {
+  const player = await currentPlayer();
+  if (!player) redirect("/");
+  if (!player.reference_path) redirect("/enroll");
+  return player;
 }

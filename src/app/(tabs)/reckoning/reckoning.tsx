@@ -1,32 +1,22 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { ShotsState } from "@/lib/feed";
 
-type Shot = {
-  id: string;
-  settled: boolean;
-  reason: string;
-  createdAt: string;
-  player: string;
-  emoji: string;
-};
-
-type Famous = { id: string; url: string; caption: string; score: number };
-
-export function Reckoning() {
-  const [shots, setShots] = useState<Shot[]>([]);
-  const [hallOfFame, setHallOfFame] = useState<Famous[]>([]);
+export function Reckoning({ initial }: { initial: ShotsState }) {
+  // Seeded by the server render — the tally is on screen the moment the tab is.
+  const [shots, setShots] = useState(initial.shots);
+  const [hallOfFame, setHallOfFame] = useState(initial.hallOfFame);
 
   const load = useCallback(async () => {
     const response = await fetch("/api/shots", { cache: "no-store" });
     if (!response.ok) return;
-    const data = await response.json();
+    const data: ShotsState = await response.json();
     setShots(data.shots ?? []);
     setHallOfFame(data.hallOfFame ?? []);
   }, []);
 
   useEffect(() => {
-    load();
     const timer = setInterval(load, 8000);
     return () => clearInterval(timer);
   }, [load]);
@@ -101,7 +91,15 @@ export function Reckoning() {
               className="overflow-hidden rounded-2xl border border-edge bg-panel"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo.url} alt={photo.caption} loading="lazy" className="w-full" />
+              <img
+                src={photo.url}
+                alt={photo.caption}
+                width={photo.width ?? undefined}
+                height={photo.height ?? undefined}
+                loading="lazy"
+                decoding="async"
+                className="h-auto w-full"
+              />
               <div className="flex items-baseline justify-between gap-3 p-4">
                 <p className="leading-snug">
                   <span className="font-black text-muted">#{index + 1}</span>{" "}

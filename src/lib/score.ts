@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
+import { RULES } from "./config";
 
 const anthropic = new Anthropic();
 
@@ -23,12 +24,19 @@ const Verdict = z.object({
     .string()
     .describe("One savage, affectionate roast of the moment. Under 15 words."),
   tags: z.array(z.string()).describe("2-4 lowercase one-word tags."),
-  bounty_met: z
-    .boolean()
-    .describe("Does the photo satisfy the assignment? False if none was given."),
+  // Deliberately ordered before bounty_met: the model fills these fields in
+  // order, so making it state what it actually sees — and commit to the counts —
+  // before the boolean stops the verdict being a first impression.
   bounty_note: z
     .string()
-    .describe("One short line on why the assignment was or wasn't met."),
+    .describe(
+      "Empty if no rig was attempted. Otherwise: what you literally see for " +
+        "each clause of the rig, stating any counts explicitly (how many " +
+        "people, how many on their phones, how many arms up). One short line.",
+    ),
+  bounty_met: z
+    .boolean()
+    .describe("Does the photo satisfy every clause above? False if no rig was given."),
 });
 
 export type Verdict = z.infer<typeof Verdict>;
@@ -74,7 +82,7 @@ export type Assignment = {
  * the subject is looking at the lens, and every instinct in the system prompt
  * reads that as a low-effort photo. So the brief suspends that judgement, then
  * demands every clause of the configuration literally — the strictness moves
- * from "is this candid" to "are there really four fingers".
+ * from "is this candid" to "are there really four people on their phones".
  */
 function brief(assignment: Assignment | null | undefined): string {
   if (!assignment) {
@@ -95,9 +103,13 @@ function brief(assignment: Assignment | null | undefined): string {
     `whether the described configuration is actually there.\n` +
     `Read the description as a checklist and set bounty_met true only if ` +
     `${subjectName} is genuinely in the photo AND every clause of it is visibly ` +
-    `true. Count fingers, hands, arms, people and objects literally. If a clause ` +
-    `is ambiguous, or you find yourself giving benefit of the doubt, it is false.\n` +
-    `In bounty_note, name the clause that failed, or confirm the one that made it.`
+    `true. If a clause is ambiguous, or you find yourself giving benefit of the ` +
+    `doubt, it is false.\n` +
+    `Counting is usually the whole job here, so do it deliberately rather than ` +
+    `reading the scene at a glance. Where the rig names a number — of people, of ` +
+    `phones, of drinks, of raised arms — point at each one in turn and tally it, ` +
+    `and count each person's state separately instead of judging the group as a ` +
+    `whole. Say the counts out loud in bounty_note before you decide.`
   );
 }
 
@@ -112,6 +124,60 @@ function imageBlock(img: ImageInput): Anthropic.ImageBlockParam {
   };
 }
 
+const UNJUDGED: Verdict = {
+  present: [],
+  candidness: 50,
+  funniness: 40,
+  caption: "The judge is speechless. Points awarded anyway.",
+  tags: ["unjudged"],
+  bounty_note: "",
+  bounty_met: false,
+};
+
+/** One pass of the judge. Rigs think; freestyle captures don't. */
+async function judge(
+  content: Anthropic.ContentBlockParam[],
+  rig: boolean,
+): Promise<Verdict> {
+  const response = await anthropic.messages.parse({
+    model: "claude-opus-4-8",
+    max_tokens: rig ? 4096 : 1024,
+    system: SYSTEM,
+    ...(rig ? { thinking: { type: "adaptive" as const } } : {}),
+    output_config: {
+      format: zodOutputFormat(Verdict),
+      effort: rig ? RULES.RIG_JUDGE_EFFORT : "low",
+    },
+    messages: [{ role: "user", content }],
+  });
+
+  // The roster is the bulk of every request, so cache reads are the difference
+  // between pennies and pounds over a night. If `cached` stays at 0 across
+  // consecutive captures, the prefix is being invalidated somewhere.
+  const usage = response.usage;
+  console.log(
+    `[score] in=${usage.input_tokens} cached=${usage.cache_read_input_tokens ?? 0} ` +
+      `written=${usage.cache_creation_input_tokens ?? 0} out=${usage.output_tokens}`,
+  );
+
+  // Don't lose the capture over a judging failure — bank it at a flat rate
+  // and let whoever is running the night sort it out.
+  if (response.stop_reason === "refusal" || !response.parsed_output) return UNJUDGED;
+
+  const v = response.parsed_output;
+  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+
+  return {
+    present: v.present,
+    candidness: clamp(v.candidness),
+    funniness: clamp(v.funniness),
+    caption: v.caption.trim(),
+    tags: v.tags.slice(0, 4).map((t) => t.toLowerCase()),
+    bounty_note: v.bounty_note.trim(),
+    bounty_met: v.bounty_met,
+  };
+}
+
 /**
  * Rates a capture against the enrolled roster.
  *
@@ -120,8 +186,19 @@ function imageBlock(img: ImageInput): Anthropic.ImageBlockParam {
  * reference images cost ~10% of list price. The capture and the assignment go
  * after the breakpoint, where they change every time.
  *
- * Opus 4.8 at effort "low" with thinking off: this is a single perception call
- * behind an upload spinner at a party, so latency beats depth.
+ * A freestyle capture is one call at effort "low" with thinking off — it's a
+ * taste question behind an upload spinner, so latency beats depth.
+ *
+ * A rig is a counting question with a shot riding on it, and one look is not
+ * good enough: measured on two real three-and-four photos, a single pass landed
+ * on the right count somewhere between a third and all of the time depending on
+ * how cleanly the hands were held. So a rig is judged several times over and the
+ * verdict is the majority. The passes run concurrently — wall-clock is one call,
+ * not N — and only rigs pay for it, a handful of times in a night.
+ *
+ * The point isn't only accuracy, it's that the answer stops being a coin flip:
+ * a crisply-held pose now passes every time, and a mushy one fails every time,
+ * which is the difference between a rule and an argument at 1am.
  */
 export async function scorePhoto(opts: {
   capture: ImageInput;
@@ -148,49 +225,23 @@ export async function scorePhoto(opts: {
 
   content.push({ type: "text", text: brief(opts.assignment) });
 
-  const response = await anthropic.messages.parse({
-    model: "claude-opus-4-8",
-    max_tokens: 1024,
-    system: SYSTEM,
-    output_config: { format: zodOutputFormat(Verdict), effort: "low" },
-    messages: [{ role: "user", content }],
-  });
+  const rig = Boolean(opts.assignment);
+  if (!rig) return judge(content, false);
 
-  // The roster is the bulk of every request, so cache reads are the difference
-  // between pennies and pounds over a night. If `cached` stays at 0 across
-  // consecutive captures, the prefix is being invalidated somewhere.
-  const usage = response.usage;
-  console.log(
-    `[score] in=${usage.input_tokens} cached=${usage.cache_read_input_tokens ?? 0} ` +
-      `written=${usage.cache_creation_input_tokens ?? 0} out=${usage.output_tokens}`,
+  const votes = await Promise.all(
+    Array.from({ length: RULES.RIG_VOTES }, () => judge(content, true)),
   );
 
-  if (response.stop_reason === "refusal" || !response.parsed_output) {
-    // Don't lose the capture over a judging failure — bank it at a flat rate
-    // and let whoever is running the night sort it out.
-    return {
-      present: [],
-      candidness: 50,
-      funniness: 40,
-      caption: "The judge is speechless. Points awarded anyway.",
-      tags: ["unjudged"],
-      bounty_met: false,
-      bounty_note: "",
-    };
-  }
+  const passed = votes.filter((v) => v.bounty_met);
+  const met = passed.length * 2 > votes.length;
 
-  const v = response.parsed_output;
-  const clamp = (n: number) => Math.max(0, Math.min(100, Math.round(n)));
+  // Report from the side that won, so the note the player reads is the reasoning
+  // that actually decided it rather than a dissenter's.
+  const winner = (met ? passed : votes.filter((v) => !v.bounty_met))[0] ?? votes[0];
 
-  return {
-    present: v.present,
-    candidness: clamp(v.candidness),
-    funniness: clamp(v.funniness),
-    caption: v.caption.trim(),
-    tags: v.tags.slice(0, 4).map((t) => t.toLowerCase()),
-    bounty_met: v.bounty_met,
-    bounty_note: v.bounty_note.trim(),
-  };
+  console.log(`[rig] ${passed.length}/${votes.length} passed -> ${met}`);
+
+  return { ...winner, bounty_met: met };
 }
 
 /**

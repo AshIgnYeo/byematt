@@ -36,7 +36,7 @@ grant execute on function owe_shots(int) to service_role;
 -- ------------------------------------------------------------------- seed --
 -- Conditions are written as checklists on purpose: the judge is told every
 -- clause must be visibly true, so "both arms up AND mouth open" can't be half
--- satisfied. Anything countable — fingers, hands, people — is countable from a
+-- satisfied. Anything countable — people, hands, phones — is countable from a
 -- single frame, which is the whole test for whether a rig belongs on this list.
 -- Six of them, each a different shape of caper, so no two nights run the same.
 insert into bounties (title, action, points, shots, for_role, subject_id)
@@ -46,8 +46,11 @@ from (values
    'in a photo with four or more people, and the only one not looking at the camera',
    90, 2),
 
-  ('Three and Four',
-   'holding up three fingers on one hand and four on the other, both hands visible',
+  -- Counting people and phones survives a dark bar; counting fingers does not.
+  -- An earlier version of this slot asked for three fingers on one hand and four
+  -- on the other, and the judge read a correctly-held pose as eight.
+  ('The Group Chat',
+   'in a photo with exactly three other people, where all four of them are looking down at their own phones and none of them are looking at each other',
    70, 1),
 
   ('The Chorus',

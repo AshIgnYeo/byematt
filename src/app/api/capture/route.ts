@@ -38,11 +38,20 @@ export async function POST(request: Request) {
 
   const form = await request.formData();
   const file = form.get("photo");
+  const thumbFile = form.get("thumb");
   const bountyId = form.get("bountyId");
 
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No photo received." }, { status: 400 });
   }
+
+  // Recorded so the feed can reserve each row's height before the image lands.
+  const dimension = (key: string) => {
+    const raw = Number(form.get(key));
+    return Number.isFinite(raw) && raw > 0 ? Math.round(raw) : null;
+  };
+  const width = dimension("width");
+  const height = dimension("height");
 
   const db = adminDb();
   const enrolled = await loadEnrolled();
@@ -58,16 +67,31 @@ export async function POST(request: Request) {
   // ------------------------------------------------------------ the upload --
   const buffer = Buffer.from(await file.arrayBuffer());
   const mediaType = file.type || "image/jpeg";
-  const path = `shots/${photographer.id}/${crypto.randomUUID()}.jpg`;
+  const id = crypto.randomUUID();
+  const path = `shots/${photographer.id}/${id}.jpg`;
+  const thumbPath = `shots/${photographer.id}/${id}-thumb.jpg`;
 
-  const { error: uploadError } = await db.storage
-    .from(STORAGE_BUCKET)
-    .upload(path, buffer, { contentType: mediaType });
+  // The thumbnail rides along, but it is not worth losing a capture over: if
+  // it fails the feed just serves the full-size copy for that one photo.
+  const [{ error: uploadError }, thumbUpload] = await Promise.all([
+    db.storage.from(STORAGE_BUCKET).upload(path, buffer, { contentType: mediaType }),
+    thumbFile instanceof File
+      ? thumbFile
+          .arrayBuffer()
+          .then((bytes) =>
+            db.storage
+              .from(STORAGE_BUCKET)
+              .upload(thumbPath, Buffer.from(bytes), { contentType: "image/jpeg" }),
+          )
+      : Promise.resolve(null),
+  ]);
 
   if (uploadError) {
     return NextResponse.json({ error: uploadError.message }, { status: 500 });
   }
   const storagePath = `${STORAGE_BUCKET}/${path}`;
+  const storedThumb =
+    thumbUpload && !thumbUpload.error ? `${STORAGE_BUCKET}/${thumbPath}` : null;
 
   // ----------------------------------------------------------- the verdict --
   let assignment: Assignment | null = null;
@@ -129,6 +153,9 @@ export async function POST(request: Request) {
       subject_id: null,
       detected_ids: detectedIds,
       storage_path: storagePath,
+      thumb_path: storedThumb,
+      width,
+      height,
       score: 0,
       funniness: verdict.funniness,
       candidness: verdict.candidness,
@@ -161,6 +188,9 @@ export async function POST(request: Request) {
       subject_id: subject.id,
       detected_ids: detectedIds,
       storage_path: storagePath,
+      thumb_path: storedThumb,
+      width,
+      height,
       score: basePoints,
       funniness: verdict.funniness,
       candidness: verdict.candidness,
