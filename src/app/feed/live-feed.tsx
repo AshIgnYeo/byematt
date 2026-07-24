@@ -19,6 +19,8 @@ type State = {
     id: string;
     url: string;
     caption: string;
+    counted: boolean;
+    reason: string | null;
     score: number;
     bountyPoints: number;
     funniness: number;
@@ -28,7 +30,7 @@ type State = {
     createdAt: string;
     photographer: string;
     photographerEmoji: string;
-    subject: string;
+    subject: string | null;
     counterAttack: boolean;
   }[];
 };
@@ -99,10 +101,17 @@ export function LiveFeed() {
           {state.feed.map((photo) => (
             <li
               key={photo.id}
-              className="flash-in overflow-hidden rounded-2xl border border-edge bg-panel"
+              className={`flash-in overflow-hidden rounded-2xl border bg-panel ${
+                photo.counted ? "border-edge" : "border-edge/50"
+              }`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={photo.url} alt={photo.caption} loading="lazy" className="w-full" />
+              <img
+                src={photo.url}
+                alt={photo.caption}
+                loading="lazy"
+                className={`w-full ${photo.counted ? "" : "opacity-80"}`}
+              />
 
               <div className="p-4">
                 <div className="flex items-baseline justify-between gap-3">
@@ -110,27 +119,47 @@ export function LiveFeed() {
                     <span aria-hidden>{photo.photographerEmoji}</span>{" "}
                     {photo.photographer}
                     <span className="font-normal text-muted">
-                      {photo.counterAttack ? " struck back at " : " caught "}
-                      {photo.subject}
+                      {photo.counted
+                        ? `${photo.counterAttack ? " struck back at " : " caught "}${photo.subject}`
+                        : " shot one for the album"}
                     </span>
                   </span>
-                  <span
-                    className={`shrink-0 text-lg font-black ${
-                      photo.counterAttack ? "text-danger" : "text-flash"
-                    }`}
-                  >
-                    {photo.counterAttack ? "−" : "+"}
-                    {photo.score}
-                  </span>
+
+                  {photo.counted ? (
+                    <span
+                      className={`shrink-0 text-lg font-black ${
+                        photo.counterAttack ? "text-danger" : "text-flash"
+                      }`}
+                    >
+                      {photo.counterAttack ? "−" : "+"}
+                      {photo.score}
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-[10px] font-black uppercase tracking-widest text-muted">
+                      No score
+                    </span>
+                  )}
                 </div>
 
-                <p className="mt-2 leading-snug">&ldquo;{photo.caption}&rdquo;</p>
-
-                <p className="mt-2 text-xs uppercase tracking-widest text-muted">
-                  funny {photo.funniness} · candid {photo.candidness}
-                  {photo.multiplier !== 1 && ` · ×${photo.multiplier}`}
-                  {photo.bountyPoints > 0 && ` · bounty +${photo.bountyPoints}`}
+                <p
+                  className={`mt-2 leading-snug ${photo.counted ? "" : "text-muted"}`}
+                >
+                  &ldquo;{photo.caption}&rdquo;
                 </p>
+
+                {photo.counted ? (
+                  <p className="mt-2 text-xs uppercase tracking-widest text-muted">
+                    funny {photo.funniness} · candid {photo.candidness}
+                    {photo.multiplier !== 1 && ` · ×${photo.multiplier}`}
+                    {photo.bountyPoints > 0 && ` · bounty +${photo.bountyPoints}`}
+                  </p>
+                ) : (
+                  photo.reason && (
+                    <p className="mt-2 text-xs uppercase tracking-widest text-muted">
+                      {photo.reason}
+                    </p>
+                  )
+                )}
               </div>
             </li>
           ))}

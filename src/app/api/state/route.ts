@@ -15,10 +15,11 @@ export async function GET() {
   const [gameRes, playersRes, photosRes, shotsRes] = await Promise.all([
     db.from("game").select("*").eq("id", true).single(),
     db.from("players").select("id, name, emoji, is_target, reference_path").order("name"),
+    // Misses come back too. They score nothing, but a photo of the six of you
+    // failing to find Matt is still a photo of the night.
     db
       .from("photos")
       .select("*")
-      .not("subject_id", "is", null)
       .order("created_at", { ascending: false })
       .limit(60),
     db.from("shot_log").select("player_id, settled"),
@@ -33,7 +34,10 @@ export async function GET() {
   const leaderboard = players
     .filter((p) => !p.is_target)
     .map((player) => {
-      const own = photos.filter((photo) => photo.photographer_id === player.id);
+      // Only captures that landed on somebody count toward the standings.
+      const own = photos.filter(
+        (photo) => photo.photographer_id === player.id && photo.subject_id,
+      );
       return {
         id: player.id,
         name: player.name,
@@ -62,6 +66,8 @@ export async function GET() {
       id: photo.id,
       url: publicUrl(photo.storage_path),
       caption: photo.caption,
+      counted: photo.subject_id !== null,
+      reason: photo.rejected_reason,
       score: photo.score + photo.bounty_points,
       bountyPoints: photo.bounty_points,
       funniness: photo.funniness,
@@ -71,7 +77,7 @@ export async function GET() {
       createdAt: photo.created_at,
       photographer: byId.get(photo.photographer_id)?.name ?? "?",
       photographerEmoji: byId.get(photo.photographer_id)?.emoji ?? "📸",
-      subject: byId.get(photo.subject_id!)?.name ?? "?",
+      subject: photo.subject_id ? byId.get(photo.subject_id)?.name ?? "?" : null,
       counterAttack: byId.get(photo.photographer_id)?.is_target ?? false,
     })),
   });

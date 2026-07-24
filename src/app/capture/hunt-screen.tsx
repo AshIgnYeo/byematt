@@ -300,6 +300,9 @@ function Verdict({ result, preview }: { result: Result; preview: string | null }
           <>
             <p className="text-lg font-bold text-danger">Doesn&rsquo;t count</p>
             <p className="mt-1 text-sm text-muted">{result.reason}</p>
+            <p className="mt-2 text-xs uppercase tracking-widest text-muted">
+              Kept for the album anyway
+            </p>
           </>
         )}
       </div>
