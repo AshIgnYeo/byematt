@@ -163,6 +163,63 @@ export async function loadState(viewer: Player): Promise<FeedState> {
   };
 }
 
+export type AlbumPhoto = {
+  id: string;
+  url: string;
+  full: string;
+  width: number | null;
+  height: number | null;
+  caption: string;
+  counted: boolean;
+  score: number;
+  createdAt: string;
+  photographer: string;
+  photographerEmoji: string;
+  subject: string | null;
+};
+
+export type AlbumState = {
+  count: number;
+  photos: AlbumPhoto[];
+};
+
+/** Every picture from the night, newest first — the hits and the misses both.
+ *  The feed rations itself to the latest 60; the album is the whole roll. */
+export async function loadAlbum(): Promise<AlbumState> {
+  const db = adminDb();
+
+  const [playersRes, photosRes] = await Promise.all([
+    db.from("players").select("id, name, emoji"),
+    db
+      .from("photos")
+      .select(
+        "id, photographer_id, subject_id, storage_path, thumb_path, width, height, score, bounty_points, caption, created_at",
+      )
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const byId = new Map((playersRes.data ?? []).map((p) => [p.id, p]));
+  const photos = photosRes.data ?? [];
+
+  return {
+    count: photos.length,
+    photos: photos.map((photo) => ({
+      id: photo.id,
+      url: imageUrl(photo),
+      full: publicUrl(photo.storage_path),
+      width: photo.width,
+      height: photo.height,
+      caption: photo.caption ?? "",
+      counted: photo.subject_id !== null,
+      score: photo.score + photo.bounty_points,
+      createdAt: photo.created_at,
+      photographer: byId.get(photo.photographer_id)?.name ?? "?",
+      photographerEmoji: byId.get(photo.photographer_id)?.emoji ?? "📸",
+      subject: photo.subject_id ? byId.get(photo.subject_id)?.name ?? "?" : null,
+    })),
+  };
+}
+
 /** Outstanding shots, newest first, with the photo that caused each one. */
 export async function loadShots(): Promise<ShotsState> {
   const db = adminDb();

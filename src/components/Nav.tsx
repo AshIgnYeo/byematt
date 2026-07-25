@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const TABS = [
   { href: "/feed", label: "Feed", icon: "📰" },
   { href: "/capture", label: "Hunt", icon: "📸" },
+  { href: "/album", label: "Album", icon: "🖼️" },
   { href: "/reckoning", label: "Tally", icon: "🥃" },
 ];
 
@@ -15,7 +16,7 @@ export function Nav() {
   return (
     // The bottom inset keeps the tabs clear of the home indicator once the app
     // is installed to the home screen.
-    <nav className="sticky bottom-0 z-40 mt-auto grid grid-cols-3 border-t border-edge bg-panel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+    <nav className="sticky bottom-0 z-40 mt-auto grid grid-cols-4 border-t border-edge bg-panel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       {TABS.map((tab) => {
         const active = pathname === tab.href;
         return (
